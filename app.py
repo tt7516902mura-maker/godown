@@ -202,7 +202,7 @@ def build_file_list(session, content, account_token, password_hash):
 
 # ---------------- job runner (選択されたファイルのダウンロード) ----------------
 
-def run_job(job_id: str, session: requests.Session, files: list, root_name: str, lang: str):
+def run_job(job_id: str, session: requests.Session, files: list, root_name: str, content_id: str, lang: str):
     def log(msg: str):
         with JOBS_LOCK:
             JOBS[job_id]["log"].append(msg)
@@ -220,14 +220,14 @@ def run_job(job_id: str, session: requests.Session, files: list, root_name: str,
                 download_file(session, f["link"], dest)
 
             log(t("zipping", lang))
-            # 内部的な保存名はjob_idにして衝突を避け、ダウンロード時の名前だけroot_nameにする
+            # 内部的な保存名はjob_idにして衝突を避け、ダウンロード時のファイル名はURLのID(content_id)にする
             zip_base = str(JOB_STORAGE_DIR / job_id)
             zip_path = shutil.make_archive(zip_base, "zip", target_dir)
 
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "done"
             JOBS[job_id]["zip_path"] = zip_path
-            JOBS[job_id]["download_name"] = f"{root_name}.zip"
+            JOBS[job_id]["download_name"] = f"{content_id}.zip"
             JOBS[job_id]["created_at"] = time.time()
         log(t("done", lang))
 
@@ -308,6 +308,7 @@ def list_contents():
         LISTINGS[listing_id] = {
             "session": session,
             "root_name": root_name,
+            "content_id": content_id,
             "files": {f["id"]: f for f in files},
             "created_at": time.time(),
         }
@@ -368,7 +369,7 @@ def start():
 
     thread = threading.Thread(
         target=run_job,
-        args=(job_id, listing["session"], selected_files, listing["root_name"], lang),
+        args=(job_id, listing["session"], selected_files, listing["root_name"], listing["content_id"], lang),
         daemon=True,
     )
     thread.start()
