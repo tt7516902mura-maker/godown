@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>godown</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -11,6 +12,10 @@
 </head>
 <body>
   <main class="ticket">
+    <div class="topbar">
+      <button id="langToggle" type="button" class="lang-toggle" aria-label="Switch language">EN</button>
+    </div>
+
     <div class="ticket-top">
       <div class="mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -21,9 +26,9 @@
       </div>
       <div class="ticket-heading">
         <h1>godown</h1>
-        <p class="tagline">リンクを渡すと、荷物を受け取って梱包します</p>
+        <p class="tagline" data-i18n="tagline">リンクを渡すと、荷物を受け取って梱包します</p>
       </div>
-      <div class="status-chip" id="statusChip" data-state="idle">待機中</div>
+      <div class="status-chip" id="statusChip" data-state="idle" data-i18n="status_idle">待機中</div>
     </div>
 
     <div class="perforation" aria-hidden="true"></div>
@@ -37,12 +42,12 @@
       <div class="line line-password">
         <label class="toggle">
           <input id="usePassword" type="checkbox">
-          <span>ロック解除コードあり</span>
+          <span data-i18n="password_toggle">ロック解除コードあり</span>
         </label>
-        <input id="password" type="password" placeholder="パスワード" class="hidden">
+        <input id="password" type="password" data-i18n-placeholder="password_placeholder" placeholder="パスワード" class="hidden">
       </div>
 
-      <button id="startBtn" type="submit" class="btn-start">受け取り開始</button>
+      <button id="startBtn" type="submit" class="btn-start" data-i18n="start_button">受け取り開始</button>
     </form>
 
     <section id="manifest" class="manifest hidden" aria-live="polite">
