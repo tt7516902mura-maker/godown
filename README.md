@@ -1,4 +1,4 @@
-# gofile intake
+# godown
 
 gofile.io のリンクを渡すとダウンロードしてZIP化し、ブラウザからダウンロードできるWebアプリ。
 
