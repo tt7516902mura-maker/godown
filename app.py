@@ -7,6 +7,12 @@ godown — gofile.io ダウンローダー Webアプリ
 できあがったZIPはブラウザから直接ダウンロードできる(サーバー上にパスを固定保存しない)。
 進捗ログは日本語/英語(lang="ja"/"en")に対応している。
 
+流れ:
+    1. POST /api/list        URLからファイル一覧(名前・サイズ・サムネの有無)だけ取得
+    2. GET  /api/thumbnail/.. 一覧のサムネイル画像をサーバー経由で中継表示
+    3. POST /api/start        選んだファイルだけダウンロード→ZIP化
+    4. GET  /download/..      できたZIPをブラウザにダウンロードさせる
+
 ローカル実行:
     pip install -r requirements.txt
     python app.py
@@ -24,7 +30,7 @@ import uuid
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, Response, jsonify, render_template, request, send_file
 
 app = Flask(__name__)
 
@@ -36,17 +42,20 @@ WT_SALT = "12af056dacea0b"  # gofile公式Webクライアントが使ってい�
 JOB_STORAGE_DIR = Path(tempfile.gettempdir()) / "gofile_intake_jobs"
 JOB_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-# 何らかの理由で回収されなかった古いZIPを掃除するまでの時間
-MAX_JOB_AGE_SECONDS = 2 * 60 * 60  # 2時間
+# 何らかの理由で回収されなかった古いZIP/一覧情報を掃除するまでの時間
+MAX_AGE_SECONDS = 2 * 60 * 60  # 2時間
 
 JOBS: dict = {}
 JOBS_LOCK = threading.Lock()
+
+# URLから取得したファイル一覧(選択待ち)。listing_idごとにセッションとファイル情報を保持する。
+LISTINGS: dict = {}
+LISTINGS_LOCK = threading.Lock()
 
 DEFAULT_LANG = "ja"
 SUPPORTED_LANGS = ("ja", "en")
 
 MESSAGES = {
-    "content_id": {"ja": "コンテンツID: {}", "en": "Content ID: {}"},
     "creating_account": {"ja": "ゲストアカウントを作成中...", "en": "Creating guest account..."},
     "fetching_content": {"ja": "コンテンツ情報を取得中...", "en": "Fetching content info..."},
     "downloading": {"ja": "ダウンロード中: {}", "en": "Downloading: {}"},
@@ -59,6 +68,12 @@ MESSAGES = {
     },
     "url_missing": {"ja": "URLが指定されていません", "en": "No URL was provided"},
     "file_not_found": {"ja": "ファイルが見つかりません", "en": "File not found"},
+    "no_files_found": {"ja": "ファイルが見つかりませんでした", "en": "No files were found"},
+    "listing_expired": {
+        "ja": "一覧の有効期限が切れました。もう一度URLを入力してください。",
+        "en": "This file list has expired. Please enter the URL again.",
+    },
+    "no_selection": {"ja": "ファイルを1つ以上選んでください", "en": "Select at least one file"},
 }
 
 
@@ -143,57 +158,66 @@ def download_file(session: requests.Session, url: str, dest_path: str):
                 f.write(chunk)
 
 
-def walk_and_download(session, node, account_token, password_hash, base_dir, log, lang):
-    if node.get("type") == "file":
-        dest = os.path.join(base_dir, node["name"])
-        log(t("downloading", lang, node["name"]))
-        download_file(session, node["link"], dest)
-        return
+def _append_file(node: dict, rel_dir: str, files: list):
+    files.append(
+        {
+            "id": node["id"],
+            "name": node["name"],
+            "size": node.get("size", 0),
+            "mimetype": node.get("mimetype", ""),
+            "thumbnail": node.get("thumbnail"),
+            "link": node["link"],
+            "rel_dir": rel_dir,
+        }
+    )
 
-    folder_dir = os.path.join(base_dir, node.get("name", node.get("id", "folder")))
-    os.makedirs(folder_dir, exist_ok=True)
+
+def _collect_files(session, node, account_token, password_hash, rel_dir, files):
     for child_id, child in node.get("children", {}).items():
         if child.get("type") == "folder":
             child_full = get_content(session, child_id, account_token, password_hash)
-            walk_and_download(session, child_full, account_token, password_hash, folder_dir, log, lang)
+            sub_rel = os.path.join(rel_dir, child.get("name", child_id))
+            _collect_files(session, child_full, account_token, password_hash, sub_rel, files)
         else:
-            walk_and_download(session, child, account_token, password_hash, folder_dir, log, lang)
+            _append_file(child, rel_dir, files)
 
 
-# ---------------- job runner ----------------
+def build_file_list(session, content, account_token, password_hash):
+    """gofileのコンテンツツリーを再帰的にたどり、ファイルだけをフラットな一覧にする。
+    フォルダ構造は各ファイルの rel_dir(相対フォルダパス)として保持する。"""
+    root_name = content.get("name", content.get("id"))
+    files: list = []
+    if content.get("type") == "folder":
+        for child_id, child in content.get("children", {}).items():
+            if child.get("type") == "folder":
+                child_full = get_content(session, child_id, account_token, password_hash)
+                sub_rel = child.get("name", child_id)
+                _collect_files(session, child_full, account_token, password_hash, sub_rel, files)
+            else:
+                _append_file(child, "", files)
+    else:
+        _append_file(content, "", files)
+    return root_name, files
 
-def run_job(job_id: str, url: str, password: str | None, lang: str):
+
+# ---------------- job runner (選択されたファイルのダウンロード) ----------------
+
+def run_job(job_id: str, session: requests.Session, files: list, root_name: str, lang: str):
     def log(msg: str):
         with JOBS_LOCK:
             JOBS[job_id]["log"].append(msg)
 
     try:
-        content_id = extract_content_id(url)
-        log(t("content_id", lang, content_id))
-
-        password_hash = hashlib.sha256(password.encode()).hexdigest() if password else None
-
-        session = make_session()
-        log(t("creating_account", lang))
-        account_token = get_guest_token(session)
-
-        log(t("fetching_content", lang))
-        content = get_content(session, content_id, account_token, password_hash)
-        root_name = content.get("name", content_id)
-
         with tempfile.TemporaryDirectory() as tmp_root:
-            if content.get("type") == "folder":
-                target_dir = os.path.join(tmp_root, root_name)
-                os.makedirs(target_dir, exist_ok=True)
-                for child_id, child in content.get("children", {}).items():
-                    if child.get("type") == "folder":
-                        child_full = get_content(session, child_id, account_token, password_hash)
-                        walk_and_download(session, child_full, account_token, password_hash, target_dir, log, lang)
-                    else:
-                        walk_and_download(session, child, account_token, password_hash, target_dir, log, lang)
-            else:
-                target_dir = tmp_root
-                walk_and_download(session, content, account_token, password_hash, target_dir, log, lang)
+            target_dir = os.path.join(tmp_root, root_name)
+            os.makedirs(target_dir, exist_ok=True)
+
+            for f in files:
+                dest_dir = os.path.join(target_dir, f["rel_dir"]) if f["rel_dir"] else target_dir
+                os.makedirs(dest_dir, exist_ok=True)
+                dest = os.path.join(dest_dir, f["name"])
+                log(t("downloading", lang, f["name"]))
+                download_file(session, f["link"], dest)
 
             log(t("zipping", lang))
             # 内部的な保存名はjob_idにして衝突を避け、ダウンロード時の名前だけroot_nameにする
@@ -207,25 +231,21 @@ def run_job(job_id: str, url: str, password: str | None, lang: str):
             JOBS[job_id]["created_at"] = time.time()
         log(t("done", lang))
 
-    except PasswordRequiredError:
-        with JOBS_LOCK:
-            JOBS[job_id]["status"] = "error"
-        log(t("password_required", lang))
-
     except Exception as e:  # noqa: BLE001
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "error"
         log(f"{t('error_prefix', lang)} {e}")
 
 
-def cleanup_old_jobs():
-    """一定時間ダウンロードされなかったZIPを掃除する(ディスク圧迫防止)。"""
+def cleanup_old_entries():
+    """一定時間放置されたZIP/ファイル一覧を掃除する(ディスク・メモリ圧迫防止)。"""
     while True:
         time.sleep(600)
-        cutoff = time.time() - MAX_JOB_AGE_SECONDS
+        cutoff = time.time() - MAX_AGE_SECONDS
+
         with JOBS_LOCK:
-            expired = [jid for jid, j in JOBS.items() if j.get("created_at", 0) and j["created_at"] < cutoff]
-            for jid in expired:
+            expired_jobs = [jid for jid, j in JOBS.items() if j.get("created_at", 0) and j["created_at"] < cutoff]
+            for jid in expired_jobs:
                 zip_path = JOBS[jid].get("zip_path")
                 if zip_path and os.path.isfile(zip_path):
                     try:
@@ -234,8 +254,13 @@ def cleanup_old_jobs():
                         pass
                 del JOBS[jid]
 
+        with LISTINGS_LOCK:
+            expired_listings = [lid for lid, l in LISTINGS.items() if l["created_at"] < cutoff]
+            for lid in expired_listings:
+                del LISTINGS[lid]
 
-threading.Thread(target=cleanup_old_jobs, daemon=True).start()
+
+threading.Thread(target=cleanup_old_entries, daemon=True).start()
 
 
 # ---------------- routes ----------------
@@ -252,8 +277,8 @@ def ping():
     return "ok", 200
 
 
-@app.route("/api/start", methods=["POST"])
-def start():
+@app.route("/api/list", methods=["POST"])
+def list_contents():
     data = request.get_json(force=True) or {}
     url = (data.get("url") or "").strip()
     password = data.get("password") or None
@@ -262,11 +287,90 @@ def start():
     if not url:
         return jsonify({"error": t("url_missing", lang)}), 400
 
+    try:
+        content_id = extract_content_id(url)
+        password_hash = hashlib.sha256(password.encode()).hexdigest() if password else None
+
+        session = make_session()
+        account_token = get_guest_token(session)
+        content = get_content(session, content_id, account_token, password_hash)
+        root_name, files = build_file_list(session, content, account_token, password_hash)
+    except PasswordRequiredError:
+        return jsonify({"error": t("password_required", lang)}), 400
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": f"{t('error_prefix', lang)} {e}"}), 400
+
+    if not files:
+        return jsonify({"error": t("no_files_found", lang)}), 400
+
+    listing_id = uuid.uuid4().hex
+    with LISTINGS_LOCK:
+        LISTINGS[listing_id] = {
+            "session": session,
+            "root_name": root_name,
+            "files": {f["id"]: f for f in files},
+            "created_at": time.time(),
+        }
+
+    return jsonify(
+        {
+            "listing_id": listing_id,
+            "root_name": root_name,
+            "files": [
+                {
+                    "id": f["id"],
+                    "name": f["name"],
+                    "size": f["size"],
+                    "mimetype": f["mimetype"],
+                    "has_thumbnail": bool(f.get("thumbnail")),
+                    "rel_dir": f["rel_dir"],
+                }
+                for f in files
+            ],
+        }
+    )
+
+
+@app.route("/api/thumbnail/<listing_id>/<file_id>")
+def thumbnail(listing_id, file_id):
+    listing = LISTINGS.get(listing_id)
+    if not listing:
+        return "", 404
+    file_info = listing["files"].get(file_id)
+    if not file_info or not file_info.get("thumbnail"):
+        return "", 404
+    try:
+        r = listing["session"].get(file_info["thumbnail"], timeout=15)
+        r.raise_for_status()
+    except requests.RequestException:
+        return "", 404
+    return Response(r.content, mimetype=r.headers.get("Content-Type", "image/jpeg"))
+
+
+@app.route("/api/start", methods=["POST"])
+def start():
+    data = request.get_json(force=True) or {}
+    listing_id = data.get("listing_id")
+    selected_ids = data.get("selected_ids") or []
+    lang = resolve_lang(data.get("lang"))
+
+    listing = LISTINGS.get(listing_id)
+    if not listing:
+        return jsonify({"error": t("listing_expired", lang)}), 400
+
+    selected_files = [listing["files"][fid] for fid in selected_ids if fid in listing["files"]]
+    if not selected_files:
+        return jsonify({"error": t("no_selection", lang)}), 400
+
     job_id = uuid.uuid4().hex
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "running", "log": [], "zip_path": None, "download_name": None}
 
-    thread = threading.Thread(target=run_job, args=(job_id, url, password, lang), daemon=True)
+    thread = threading.Thread(
+        target=run_job,
+        args=(job_id, listing["session"], selected_files, listing["root_name"], lang),
+        daemon=True,
+    )
     thread.start()
 
     return jsonify({"job_id": job_id})

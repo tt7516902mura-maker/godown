@@ -1,14 +1,14 @@
 :root {
-  --ink: #3a352c;
-  --ink-dim: #8f8879;
-  --paper: #faf7f2;
-  --paper-raised: #f1ece2;
-  --line: #ddd4c3;
-  --tape: #a98f5e;
-  --tape-dim: #c9b98f;
-  --ok: #7c9473;
-  --err: #b06a53;
-  --radius: 10px;
+  --ink: #eef0f3;
+  --ink-dim: #9198a3;
+  --paper: #1b1d22;
+  --paper-raised: #212328;
+  --line: #33363d;
+  --tape: #e8a33d;
+  --tape-dim: #b9822f;
+  --ok: #55c2a8;
+  --err: #e0656a;
+  --radius: 2px;
 }
 
 * { box-sizing: border-box; }
@@ -22,7 +22,9 @@ body {
   align-items: center;
   justify-content: center;
   padding: 40px 16px;
-  background: #efe9dd;
+  background:
+    radial-gradient(circle at 1px 1px, #2a2d33 1px, transparent 0) 0 0 / 22px 22px,
+    #16171b;
   color: var(--ink);
   font-family: "Space Grotesk", -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
 }
@@ -41,7 +43,7 @@ code, .mono {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 16px 36px -20px rgba(90, 74, 46, 0.25);
+  box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -68,7 +70,7 @@ code, .mono {
   color: var(--ink-dim);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 2px;
   padding: 4px 10px;
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease;
@@ -90,7 +92,7 @@ code, .mono {
   flex-shrink: 0;
   width: 34px;
   height: 34px;
-  border-radius: 8px;
+  border-radius: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -120,7 +122,7 @@ code, .mono {
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   padding: 5px 9px;
-  border-radius: 999px;
+  border-radius: 2px;
   border: 1px solid var(--line);
   color: var(--ink-dim);
   white-space: nowrap;
@@ -156,7 +158,7 @@ code, .mono {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #efe9dd;
+  background: #16171b;
 }
 
 .perforation::before { left: -8px; }
@@ -187,7 +189,7 @@ code, .mono {
   color: var(--ink);
   background: var(--paper-raised);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 2px;
   padding: 10px 11px;
   outline: none;
   transition: border-color 0.15s ease;
@@ -199,7 +201,7 @@ code, .mono {
 
 .line input[type="text"]::placeholder,
 .line input[type="password"]::placeholder {
-  color: #b3a892;
+  color: #565a63;
 }
 
 .line-password .toggle {
@@ -221,42 +223,149 @@ code, .mono {
 
 .line-password #password { margin-top: 4px; }
 
-.line-dest code {
-  font-size: 12px;
-  color: var(--ink-dim);
-  background: var(--paper-raised);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 9px 11px;
-  word-break: break-all;
-  line-height: 1.5;
-}
 
 .btn-start {
   margin-top: 4px;
   border: none;
-  border-radius: 8px;
+  border-radius: 2px;
   padding: 13px 16px;
   font-family: "Space Grotesk", sans-serif;
   font-size: 14.5px;
   font-weight: 700;
-  color: #2a2419;
+  color: #1b1500;
   background: var(--tape);
   cursor: pointer;
   transition: background 0.15s ease, transform 0.05s ease;
 }
 
-.btn-start:hover { background: #b9a06e; }
+.btn-start:hover { background: #f0b256; }
 .btn-start:active { transform: scale(0.99); }
 .btn-start:disabled {
   background: var(--tape-dim);
-  color: #7a6a4a;
+  color: #4a3a13;
   cursor: not-allowed;
 }
 
 .btn-start:focus-visible {
   outline: 2px solid var(--tape);
   outline-offset: 2px;
+}
+
+/* ---- file list (ステップ1で取得したファイル一覧) ---- */
+
+.file-list-section {
+  padding: 0 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.file-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.select-all input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--tape);
+  cursor: pointer;
+}
+
+.selection-summary {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.file-row:last-child {
+  border-bottom: none;
+}
+
+.file-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  accent-color: var(--tape);
+  cursor: pointer;
+}
+
+.file-thumb {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+}
+
+.file-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.file-thumb svg {
+  width: 18px;
+  height: 18px;
+}
+
+.file-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-name {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-size {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--ink-dim);
 }
 
 /* ---- manifest (progress log) ---- */
@@ -301,7 +410,7 @@ code, .mono {
 .stamp {
   margin: 4px 22px 22px;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: 2px;
   font-size: 13px;
   line-height: 1.6;
   word-break: break-all;
@@ -331,18 +440,18 @@ code, .mono {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  color: #1f2b1a;
+  color: #06231c;
   background: var(--ok);
   font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
   font-size: 16px;
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: 2px;
   padding: 15px 16px;
   transition: background 0.15s ease, transform 0.05s ease;
 }
 
-.download-link:hover { background: #93ab89; }
+.download-link:hover { background: #6fd6bd; }
 .download-link:active { transform: scale(0.99); }
 
 /* ---- narrow screens (small phones) ---- */
@@ -358,4 +467,5 @@ code, .mono {
 
   .manifest { padding-left: 16px; padding-right: 16px; }
   .stamp { margin-left: 16px; margin-right: 16px; }
+  .file-list-section { padding: 0 16px 18px; }
 }

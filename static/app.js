@@ -7,11 +7,17 @@ const TRANSLATIONS = {
     status_error: "失敗",
     password_toggle: "ロック解除コードあり",
     password_placeholder: "パスワード",
+    check_button: "内容を確認",
+    checking: "内容を確認中...",
     start_button: "受け取り開始",
     download_button: "ダウンロード！",
+    select_all: "全部選ぶ",
+    selected_summary: "{count}個選択中 ({size})",
     manifest_received: "受け付けました...",
     err_no_connection: "サーバーに接続できませんでした。",
     err_start_failed: "開始に失敗しました",
+    err_check_failed: "内容の確認に失敗しました",
+    err_no_selection: "ファイルを1つ以上選んでください",
     err_generic: "エラーが発生しました。上の記録を確認してください。",
     err_lost_connection: "サーバーとの通信が不安定です。再接続しています...",
     err_gave_up: "サーバーに接続できませんでした。時間をおいて試してください。",
@@ -24,11 +30,17 @@ const TRANSLATIONS = {
     status_error: "Failed",
     password_toggle: "Has an unlock code",
     password_placeholder: "Password",
+    check_button: "Check contents",
+    checking: "Checking contents...",
     start_button: "Start pickup",
     download_button: "Download!",
+    select_all: "Select all",
+    selected_summary: "{count} selected ({size})",
     manifest_received: "Received...",
     err_no_connection: "Couldn't connect to the server.",
     err_start_failed: "Failed to start",
+    err_check_failed: "Failed to check contents",
+    err_no_selection: "Select at least one file",
     err_generic: "Something went wrong. Check the log above.",
     err_lost_connection: "Connection is unstable. Reconnecting...",
     err_gave_up: "Couldn't reach the server. Please try again later.",
@@ -37,12 +49,61 @@ const TRANSLATIONS = {
 
 const LANG_STORAGE_KEY = "godown_lang";
 
-const form = document.getElementById("intakeForm");
+const ICONS = {
+  image:
+    '<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="1" stroke="currentColor" stroke-width="1.4"/><circle cx="8.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M21 16l-5.5-5.5L4 21" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  video:
+    '<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="14" height="14" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M17 9.5L21 7v10l-4-2.5" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+  audio:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M9 18V6l10-2v12" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="6.5" cy="18" r="2.5" stroke="currentColor" stroke-width="1.4"/><circle cx="16.5" cy="16" r="2.5" stroke="currentColor" stroke-width="1.4"/></svg>',
+  archive:
+    '<svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M9 4v16M12 8h2M12 12h2M12 16h2" stroke="currentColor" stroke-width="1.4"/></svg>',
+  document:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H6z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M9 13h6M9 17h6" stroke="currentColor" stroke-width="1.4"/></svg>',
+  generic:
+    '<svg viewBox="0 0 24 24" fill="none"><path d="M6 3h9l4 4v14H6z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+};
+
+function iconKeyFor(mimetype, name) {
+  const mime = (mimetype || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime === "application/pdf" || mime.startsWith("text/")) return "document";
+  if (/zip|rar|7z|tar|gzip/.test(mime)) return "archive";
+
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(ext)) return "image";
+  if (["mp4", "mkv", "mov", "avi", "webm"].includes(ext)) return "video";
+  if (["mp3", "wav", "flac", "m4a", "ogg"].includes(ext)) return "audio";
+  if (["pdf", "txt", "doc", "docx"].includes(ext)) return "document";
+  if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "archive";
+  return "generic";
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "0 KB";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i += 1;
+  }
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+const checkForm = document.getElementById("checkForm");
 const usePasswordEl = document.getElementById("usePassword");
 const passwordEl = document.getElementById("password");
 const urlEl = document.getElementById("url");
-const startBtn = document.getElementById("startBtn");
+const checkBtn = document.getElementById("checkBtn");
 const statusChip = document.getElementById("statusChip");
+const fileListSection = document.getElementById("fileListSection");
+const fileListEl = document.getElementById("fileList");
+const selectAllEl = document.getElementById("selectAll");
+const selectionSummaryEl = document.getElementById("selectionSummary");
+const startBtn = document.getElementById("startBtn");
 const manifest = document.getElementById("manifest");
 const manifestList = document.getElementById("manifestList");
 const resultSection = document.getElementById("resultSection");
@@ -50,6 +111,8 @@ const langToggle = document.getElementById("langToggle");
 
 let currentLang = "ja";
 let lastKnownStatusState = "idle";
+let currentListing = null; // { listing_id, files: [{id, name, size, mimetype, has_thumbnail, rel_dir}] }
+const selectedIds = new Set();
 
 function detectInitialLang() {
   try {
@@ -76,8 +139,8 @@ function applyTranslations() {
     el.placeholder = tr(el.dataset.i18nPlaceholder);
   });
 
-  // ステータスチップは状態に応じたラベルで出し直す(進行中に切り替えられても文言がずれないように)
   setStatus(lastKnownStatusState);
+  updateSelectionSummary();
 }
 
 function setLang(lang) {
@@ -129,14 +192,161 @@ function showFatalError(message) {
   resultSection.className = "stamp error";
   resultSection.textContent = message;
   startBtn.disabled = false;
+  checkBtn.disabled = false;
 }
+
+// ---------------- ステップ1: 内容の確認(ファイル一覧の取得) ----------------
+
+function renderFileList(files) {
+  fileListEl.innerHTML = "";
+  selectedIds.clear();
+
+  files.forEach((file) => {
+    selectedIds.add(file.id);
+
+    const li = document.createElement("li");
+    li.className = "file-row";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        selectedIds.add(file.id);
+      } else {
+        selectedIds.delete(file.id);
+      }
+      syncSelectAllState(files.length);
+      updateSelectionSummary();
+    });
+
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "file-thumb";
+    const iconKey = iconKeyFor(file.mimetype, file.name);
+
+    if (file.has_thumbnail) {
+      const img = document.createElement("img");
+      img.src = `/api/thumbnail/${currentListing.listing_id}/${file.id}`;
+      img.alt = "";
+      img.loading = "lazy";
+      img.addEventListener("error", () => {
+        thumbWrap.innerHTML = ICONS[iconKey];
+      });
+      thumbWrap.appendChild(img);
+    } else {
+      thumbWrap.innerHTML = ICONS[iconKey];
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "file-meta";
+    const nameEl = document.createElement("div");
+    nameEl.className = "file-name";
+    nameEl.textContent = file.rel_dir ? `${file.rel_dir}/${file.name}` : file.name;
+    const sizeEl = document.createElement("div");
+    sizeEl.className = "file-size";
+    sizeEl.textContent = formatBytes(file.size);
+    meta.appendChild(nameEl);
+    meta.appendChild(sizeEl);
+
+    li.appendChild(checkbox);
+    li.appendChild(thumbWrap);
+    li.appendChild(meta);
+    fileListEl.appendChild(li);
+  });
+
+  syncSelectAllState(files.length);
+  updateSelectionSummary();
+  fileListSection.classList.remove("hidden");
+}
+
+function syncSelectAllState(totalCount) {
+  selectAllEl.checked = selectedIds.size === totalCount;
+  selectAllEl.indeterminate = selectedIds.size > 0 && selectedIds.size < totalCount;
+}
+
+function updateSelectionSummary() {
+  if (!currentListing) return;
+  const totalSize = currentListing.files
+    .filter((f) => selectedIds.has(f.id))
+    .reduce((sum, f) => sum + (f.size || 0), 0);
+  selectionSummaryEl.textContent = tr("selected_summary")
+    .replace("{count}", String(selectedIds.size))
+    .replace("{size}", formatBytes(totalSize));
+  startBtn.disabled = selectedIds.size === 0;
+}
+
+selectAllEl.addEventListener("change", () => {
+  if (!currentListing) return;
+  const checkboxes = fileListEl.querySelectorAll("input[type=checkbox]");
+  if (selectAllEl.checked) {
+    currentListing.files.forEach((f) => selectedIds.add(f.id));
+    checkboxes.forEach((cb) => {
+      cb.checked = true;
+    });
+  } else {
+    selectedIds.clear();
+    checkboxes.forEach((cb) => {
+      cb.checked = false;
+    });
+  }
+  updateSelectionSummary();
+});
+
+checkForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const url = urlEl.value.trim();
+  if (!url) {
+    urlEl.focus();
+    return;
+  }
+
+  checkBtn.disabled = true;
+  fileListSection.classList.add("hidden");
+  resultSection.classList.add("hidden");
+  manifest.classList.add("hidden");
+  setStatus("running");
+  statusChip.textContent = tr("checking");
+
+  const body = {
+    url,
+    password: usePasswordEl.checked ? passwordEl.value : null,
+    lang: currentLang,
+  };
+
+  let res;
+  try {
+    res = await fetch("/api/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    checkBtn.disabled = false;
+    showFatalError(tr("err_no_connection"));
+    return;
+  }
+
+  const data = await parseJsonSafe(res);
+  checkBtn.disabled = false;
+
+  if (!res.ok || !data) {
+    showFatalError((data && data.error) || tr("err_check_failed"));
+    return;
+  }
+
+  setStatus("idle");
+  currentListing = data;
+  renderFileList(data.files);
+});
+
+// ---------------- ステップ2: 選択したファイルのダウンロード ----------------
 
 async function pollStatus(jobId, failCount = 0) {
   let res;
   try {
     res = await fetch(`/api/status/${jobId}`);
   } catch (e) {
-    // ネットワーク断・Renderのコールドスタート直後などは少しリトライしてから諦める
     if (failCount < 6) {
       renderManifest([tr("err_lost_connection")]);
       setTimeout(() => pollStatus(jobId, failCount + 1), 1500);
@@ -182,12 +392,9 @@ async function pollStatus(jobId, failCount = 0) {
   }
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-
-  const url = urlEl.value.trim();
-  if (!url) {
-    urlEl.focus();
+startBtn.addEventListener("click", async () => {
+  if (!currentListing || selectedIds.size === 0) {
+    showFatalError(tr("err_no_selection"));
     return;
   }
 
@@ -198,8 +405,8 @@ form.addEventListener("submit", async (event) => {
   renderManifest([tr("manifest_received")]);
 
   const body = {
-    url,
-    password: usePasswordEl.checked ? passwordEl.value : null,
+    listing_id: currentListing.listing_id,
+    selected_ids: Array.from(selectedIds),
     lang: currentLang,
   };
 
@@ -218,8 +425,7 @@ form.addEventListener("submit", async (event) => {
   const data = await parseJsonSafe(res);
 
   if (!res.ok || !data) {
-    const message = (data && data.error) || tr("err_start_failed");
-    showFatalError(message);
+    showFatalError((data && data.error) || tr("err_start_failed"));
     return;
   }
 
