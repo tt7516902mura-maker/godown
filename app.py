@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-gofile.io ダウンローダー Webアプリ
+godown — gofile.io ダウンローダー Webアプリ
 
 ローカルでも、Render等の無料Webサービスにデプロイしても動く。
 処理(トークン計算・コンテンツ取得・ダウンロード・ZIP化)はすべてサーバー側で行い、
 できあがったZIPはブラウザから直接ダウンロードできる(サーバー上にパスを固定保存しない)。
+進捗ログは日本語/英語(lang="ja"/"en")に対応している。
 
 ローカル実行:
     pip install -r requirements.txt
@@ -40,6 +41,38 @@ MAX_JOB_AGE_SECONDS = 2 * 60 * 60  # 2時間
 
 JOBS: dict = {}
 JOBS_LOCK = threading.Lock()
+
+DEFAULT_LANG = "ja"
+SUPPORTED_LANGS = ("ja", "en")
+
+MESSAGES = {
+    "content_id": {"ja": "コンテンツID: {}", "en": "Content ID: {}"},
+    "creating_account": {"ja": "ゲストアカウントを作成中...", "en": "Creating guest account..."},
+    "fetching_content": {"ja": "コンテンツ情報を取得中...", "en": "Fetching content info..."},
+    "downloading": {"ja": "ダウンロード中: {}", "en": "Downloading: {}"},
+    "zipping": {"ja": "ZIPを作成中...", "en": "Creating ZIP..."},
+    "done": {"ja": "完了。ダウンロードできます。", "en": "Done. Ready to download."},
+    "error_prefix": {"ja": "エラー:", "en": "Error:"},
+    "password_required": {
+        "ja": "パスワードが必要、または間違っています。",
+        "en": "Password required or incorrect.",
+    },
+    "url_missing": {"ja": "URLが指定されていません", "en": "No URL was provided"},
+    "file_not_found": {"ja": "ファイルが見つかりません", "en": "File not found"},
+}
+
+
+def resolve_lang(value) -> str:
+    return value if value in SUPPORTED_LANGS else DEFAULT_LANG
+
+
+def t(key: str, lang: str, *fmt_args) -> str:
+    template = MESSAGES[key].get(lang, MESSAGES[key][DEFAULT_LANG])
+    return template.format(*fmt_args) if fmt_args else template
+
+
+class PasswordRequiredError(RuntimeError):
+    """パスワードが必要、または間違っている場合に送出する。"""
 
 
 # ---------------- gofile API helper ----------------
@@ -80,7 +113,7 @@ def get_guest_token(session: requests.Session) -> str:
     r.raise_for_status()
     data = r.json()
     if data.get("status") != "ok":
-        raise RuntimeError(f"ゲストアカウントの作成に失敗しました: {data}")
+        raise RuntimeError(f"Failed to create guest account: {data}")
     token = data["data"]["token"]
     session.headers.update({"Authorization": f"Bearer {token}"})
     return token
@@ -95,10 +128,10 @@ def get_content(session, content_id, account_token, password_hash=None):
     r.raise_for_status()
     data = r.json()
     if data.get("status") != "ok":
-        raise RuntimeError(f"コンテンツの取得に失敗しました: {data}")
+        raise RuntimeError(f"Failed to fetch content: {data}")
     content = data["data"]
     if "passwordStatus" in content and content["passwordStatus"] != "passwordOk":
-        raise RuntimeError("パスワードが必要、または間違っています。")
+        raise PasswordRequiredError()
     return content
 
 
@@ -110,10 +143,10 @@ def download_file(session: requests.Session, url: str, dest_path: str):
                 f.write(chunk)
 
 
-def walk_and_download(session, node, account_token, password_hash, base_dir, log):
+def walk_and_download(session, node, account_token, password_hash, base_dir, log, lang):
     if node.get("type") == "file":
         dest = os.path.join(base_dir, node["name"])
-        log(f"ダウンロード中: {node['name']}")
+        log(t("downloading", lang, node["name"]))
         download_file(session, node["link"], dest)
         return
 
@@ -122,29 +155,29 @@ def walk_and_download(session, node, account_token, password_hash, base_dir, log
     for child_id, child in node.get("children", {}).items():
         if child.get("type") == "folder":
             child_full = get_content(session, child_id, account_token, password_hash)
-            walk_and_download(session, child_full, account_token, password_hash, folder_dir, log)
+            walk_and_download(session, child_full, account_token, password_hash, folder_dir, log, lang)
         else:
-            walk_and_download(session, child, account_token, password_hash, folder_dir, log)
+            walk_and_download(session, child, account_token, password_hash, folder_dir, log, lang)
 
 
 # ---------------- job runner ----------------
 
-def run_job(job_id: str, url: str, password: str | None):
+def run_job(job_id: str, url: str, password: str | None, lang: str):
     def log(msg: str):
         with JOBS_LOCK:
             JOBS[job_id]["log"].append(msg)
 
     try:
         content_id = extract_content_id(url)
-        log(f"コンテンツID: {content_id}")
+        log(t("content_id", lang, content_id))
 
         password_hash = hashlib.sha256(password.encode()).hexdigest() if password else None
 
         session = make_session()
-        log("ゲストアカウントを作成中...")
+        log(t("creating_account", lang))
         account_token = get_guest_token(session)
 
-        log("コンテンツ情報を取得中...")
+        log(t("fetching_content", lang))
         content = get_content(session, content_id, account_token, password_hash)
         root_name = content.get("name", content_id)
 
@@ -155,14 +188,14 @@ def run_job(job_id: str, url: str, password: str | None):
                 for child_id, child in content.get("children", {}).items():
                     if child.get("type") == "folder":
                         child_full = get_content(session, child_id, account_token, password_hash)
-                        walk_and_download(session, child_full, account_token, password_hash, target_dir, log)
+                        walk_and_download(session, child_full, account_token, password_hash, target_dir, log, lang)
                     else:
-                        walk_and_download(session, child, account_token, password_hash, target_dir, log)
+                        walk_and_download(session, child, account_token, password_hash, target_dir, log, lang)
             else:
                 target_dir = tmp_root
-                walk_and_download(session, content, account_token, password_hash, target_dir, log)
+                walk_and_download(session, content, account_token, password_hash, target_dir, log, lang)
 
-            log("ZIPを作成中...")
+            log(t("zipping", lang))
             # 内部的な保存名はjob_idにして衝突を避け、ダウンロード時の名前だけroot_nameにする
             zip_base = str(JOB_STORAGE_DIR / job_id)
             zip_path = shutil.make_archive(zip_base, "zip", target_dir)
@@ -172,12 +205,17 @@ def run_job(job_id: str, url: str, password: str | None):
             JOBS[job_id]["zip_path"] = zip_path
             JOBS[job_id]["download_name"] = f"{root_name}.zip"
             JOBS[job_id]["created_at"] = time.time()
-        log("完了。ダウンロードできます。")
+        log(t("done", lang))
+
+    except PasswordRequiredError:
+        with JOBS_LOCK:
+            JOBS[job_id]["status"] = "error"
+        log(t("password_required", lang))
 
     except Exception as e:  # noqa: BLE001
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "error"
-        log(f"エラー: {e}")
+        log(f"{t('error_prefix', lang)} {e}")
 
 
 def cleanup_old_jobs():
@@ -219,15 +257,16 @@ def start():
     data = request.get_json(force=True) or {}
     url = (data.get("url") or "").strip()
     password = data.get("password") or None
+    lang = resolve_lang(data.get("lang"))
 
     if not url:
-        return jsonify({"error": "URLが指定されていません"}), 400
+        return jsonify({"error": t("url_missing", lang)}), 400
 
     job_id = uuid.uuid4().hex
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "running", "log": [], "zip_path": None, "download_name": None}
 
-    thread = threading.Thread(target=run_job, args=(job_id, url, password), daemon=True)
+    thread = threading.Thread(target=run_job, args=(job_id, url, password, lang), daemon=True)
     thread.start()
 
     return jsonify({"job_id": job_id})
@@ -244,9 +283,10 @@ def status(job_id):
 
 @app.route("/download/<job_id>")
 def download(job_id):
+    lang = resolve_lang(request.args.get("lang"))
     job = JOBS.get(job_id)
     if not job or job["status"] != "done" or not job.get("zip_path"):
-        return jsonify({"error": "ファイルが見つかりません"}), 404
+        return jsonify({"error": t("file_not_found", lang)}), 404
     return send_file(job["zip_path"], as_attachment=True, download_name=job["download_name"])
 
 
