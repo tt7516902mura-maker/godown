@@ -207,6 +207,13 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/ping")
+def ping():
+    """UptimeRobotやcron-job.orgなど外形監視からの定期pingを受けて、
+    Renderの無料プランがスリープしないようにするための軽いエンドポイント。"""
+    return "ok", 200
+
+
 @app.route("/api/start", methods=["POST"])
 def start():
     data = request.get_json(force=True) or {}
