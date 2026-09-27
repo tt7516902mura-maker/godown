@@ -22,6 +22,7 @@ from __future__ import annotations  # Python 3.9でも動くようにするた�
 
 import hashlib
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -88,6 +89,16 @@ def t(key: str, lang: str, *fmt_args) -> str:
 
 class PasswordRequiredError(RuntimeError):
     """パスワードが必要、または間違っている場合に送出する。"""
+
+
+def sanitize_zip_name(name: str | None, fallback: str) -> str:
+    """ユーザーが指定したZIP名を安全なファイル名に整える。空や不正な場合はfallbackを使う。"""
+    name = (name or "").strip()
+    if name.lower().endswith(".zip"):
+        name = name[:-4]
+    name = re.sub(r'[\\/:*?"<>|]', "_", name).strip().rstrip(". ")
+    name = name[:150]
+    return name or fallback
 
 
 # ---------------- gofile API helper ----------------
@@ -202,7 +213,7 @@ def build_file_list(session, content, account_token, password_hash):
 
 # ---------------- job runner (選択されたファイルのダウンロード) ----------------
 
-def run_job(job_id: str, session: requests.Session, files: list, root_name: str, content_id: str, lang: str):
+def run_job(job_id: str, session: requests.Session, files: list, root_name: str, zip_name: str, lang: str):
     def log(msg: str):
         with JOBS_LOCK:
             JOBS[job_id]["log"].append(msg)
@@ -220,14 +231,14 @@ def run_job(job_id: str, session: requests.Session, files: list, root_name: str,
                 download_file(session, f["link"], dest)
 
             log(t("zipping", lang))
-            # 内部的な保存名はjob_idにして衝突を避け、ダウンロード時のファイル名はURLのID(content_id)にする
+            # 内部的な保存名はjob_idにして衝突を避け、ダウンロード時のファイル名はzip_nameにする
             zip_base = str(JOB_STORAGE_DIR / job_id)
             zip_path = shutil.make_archive(zip_base, "zip", target_dir)
 
         with JOBS_LOCK:
             JOBS[job_id]["status"] = "done"
             JOBS[job_id]["zip_path"] = zip_path
-            JOBS[job_id]["download_name"] = f"{content_id}.zip"
+            JOBS[job_id]["download_name"] = f"{zip_name}.zip"
             JOBS[job_id]["created_at"] = time.time()
         log(t("done", lang))
 
@@ -317,6 +328,7 @@ def list_contents():
         {
             "listing_id": listing_id,
             "root_name": root_name,
+            "content_id": content_id,
             "files": [
                 {
                     "id": f["id"],
@@ -363,13 +375,15 @@ def start():
     if not selected_files:
         return jsonify({"error": t("no_selection", lang)}), 400
 
+    zip_name = sanitize_zip_name(data.get("zip_name"), listing["content_id"])
+
     job_id = uuid.uuid4().hex
     with JOBS_LOCK:
         JOBS[job_id] = {"status": "running", "log": [], "zip_path": None, "download_name": None}
 
     thread = threading.Thread(
         target=run_job,
-        args=(job_id, listing["session"], selected_files, listing["root_name"], listing["content_id"], lang),
+        args=(job_id, listing["session"], selected_files, listing["root_name"], zip_name, lang),
         daemon=True,
     )
     thread.start()

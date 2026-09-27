@@ -104,6 +104,7 @@ const fileListEl = document.getElementById("fileList");
 const selectAllEl = document.getElementById("selectAll");
 const selectionSummaryEl = document.getElementById("selectionSummary");
 const startBtn = document.getElementById("startBtn");
+const zipNameEl = document.getElementById("zipName");
 const manifest = document.getElementById("manifest");
 const manifestList = document.getElementById("manifestList");
 const resultSection = document.getElementById("resultSection");
@@ -337,6 +338,7 @@ checkForm.addEventListener("submit", async (event) => {
 
   setStatus("idle");
   currentListing = data;
+  zipNameEl.value = data.content_id || "";
   renderFileList(data.files);
 });
 
@@ -407,6 +409,7 @@ startBtn.addEventListener("click", async () => {
   const body = {
     listing_id: currentListing.listing_id,
     selected_ids: Array.from(selectedIds),
+    zip_name: zipNameEl.value.trim(),
     lang: currentLang,
   };
 
