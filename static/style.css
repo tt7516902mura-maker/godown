@@ -1,13 +1,13 @@
 :root {
-  --ink: #eef0f3;
-  --ink-dim: #9198a3;
-  --paper: #1b1d22;
-  --paper-raised: #212328;
-  --line: #33363d;
-  --tape: #e8a33d;
-  --tape-dim: #b9822f;
-  --ok: #55c2a8;
-  --err: #e0656a;
+  --ink: #3a352c;
+  --ink-dim: #8f8879;
+  --paper: #faf7f2;
+  --paper-raised: #f1ece2;
+  --line: #ddd4c3;
+  --tape: #a98f5e;
+  --tape-dim: #c9b98f;
+  --ok: #7c9473;
+  --err: #b06a53;
   --radius: 10px;
 }
 
@@ -22,9 +22,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 40px 16px;
-  background:
-    radial-gradient(circle at 1px 1px, #2a2d33 1px, transparent 0) 0 0 / 22px 22px,
-    #16171b;
+  background: #efe9dd;
   color: var(--ink);
   font-family: "Space Grotesk", -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
 }
@@ -43,7 +41,7 @@ code, .mono {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 24px 48px -24px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 16px 36px -20px rgba(90, 74, 46, 0.25);
   overflow: hidden;
   animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -57,11 +55,35 @@ code, .mono {
   to { opacity: 1; transform: translateY(0); }
 }
 
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 10px 14px 0;
+}
+
+.lang-toggle {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.lang-toggle:hover {
+  color: var(--tape);
+  border-color: color-mix(in srgb, var(--tape) 45%, var(--line));
+}
+
 .ticket-top {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 22px 22px 20px;
+  padding: 16px 22px 20px;
 }
 
 .mark {
@@ -134,7 +156,7 @@ code, .mono {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #16171b;
+  background: #efe9dd;
 }
 
 .perforation::before { left: -8px; }
@@ -161,7 +183,7 @@ code, .mono {
 .line input[type="text"],
 .line input[type="password"] {
   font-family: "JetBrains Mono", monospace;
-  font-size: 13.5px;
+  font-size: 16px; /* iOS Safariが入力時に勝手にズームするのを防ぐため16px以上にする */
   color: var(--ink);
   background: var(--paper-raised);
   border: 1px solid var(--line);
@@ -177,7 +199,7 @@ code, .mono {
 
 .line input[type="text"]::placeholder,
 .line input[type="password"]::placeholder {
-  color: #565a63;
+  color: #b3a892;
 }
 
 .line-password .toggle {
@@ -218,17 +240,17 @@ code, .mono {
   font-family: "Space Grotesk", sans-serif;
   font-size: 14.5px;
   font-weight: 700;
-  color: #1b1500;
+  color: #2a2419;
   background: var(--tape);
   cursor: pointer;
   transition: background 0.15s ease, transform 0.05s ease;
 }
 
-.btn-start:hover { background: #f0b256; }
+.btn-start:hover { background: #b9a06e; }
 .btn-start:active { transform: scale(0.99); }
 .btn-start:disabled {
   background: var(--tape-dim);
-  color: #4a3a13;
+  color: #7a6a4a;
   cursor: not-allowed;
 }
 
@@ -287,8 +309,9 @@ code, .mono {
 
 .stamp.ok {
   color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .stamp.error {
@@ -303,14 +326,36 @@ code, .mono {
 }
 
 .download-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  color: inherit;
+  width: 100%;
+  color: #1f2b1a;
+  background: var(--ok);
+  font-family: "Space Grotesk", sans-serif;
   font-weight: 700;
+  font-size: 16px;
   text-decoration: none;
-  border-bottom: 1px solid currentColor;
-  padding-bottom: 1px;
+  border-radius: 8px;
+  padding: 15px 16px;
+  transition: background 0.15s ease, transform 0.05s ease;
 }
 
-.download-link:hover { opacity: 0.85; }
+.download-link:hover { background: #93ab89; }
+.download-link:active { transform: scale(0.99); }
+
+/* ---- narrow screens (small phones) ---- */
+
+@media (max-width: 360px) {
+  body { padding: 24px 10px; }
+
+  .ticket-top { padding: 18px 16px 16px; flex-wrap: wrap; }
+
+  .status-chip { margin-left: 48px; }
+
+  .ticket-body { padding: 16px 16px 18px; }
+
+  .manifest { padding-left: 16px; padding-right: 16px; }
+  .stamp { margin-left: 16px; margin-right: 16px; }
+}
